@@ -62,7 +62,7 @@ class Consumer(ConsumerMixin):
         :return:
         """
         try:
-            self.pool.submit(self.message_work, (body, message))
+            self.pool.submit(self.message_work, body, message)
         except AssertionError:
             message.requeue()
 
@@ -79,9 +79,8 @@ class Consumer(ConsumerMixin):
         self.pool.shutdown(wait=True)
         del sig_number, stack_frame
 
-    def message_work(self, obj):
-        message = obj[1]
-        result = self.func(obj[0])
+    def message_work(self, body, message):
+        result = self.func(body)
         if isinstance(result, tuple):
             code = result[0]
             msg = result[1]
