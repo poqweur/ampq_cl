@@ -3,7 +3,8 @@
 # Author: WangJY
 
 import signal
-from concurrent.futures import ThreadPoolExecutor
+from multiprocessing.dummy import Pool
+# from concurrent.futures import ThreadPoolExecutor
 
 from kombu import Connection, Queue, Producer
 from kombu.mixins import ConsumerMixin
@@ -42,7 +43,7 @@ class Consumer(ConsumerMixin):
             else [Queue(queues, durable=durable)]
         self.consumers = list()
         self.consumer_tag = consumer_tag
-        self.thread_num = thread_num
+        self.pool = Pool(thread_num)  # ThreadPoolExecutor(max_workers=thread_num)
         self.prefetch_count = prefetch_count
         self.func = func
         self.is_rpc = is_rpc
@@ -62,8 +63,9 @@ class Consumer(ConsumerMixin):
         :return:
         """
         try:
-            with ThreadPoolExecutor(max_workers=self.thread_num) as pool:
-                pool.submit(self.message_work, body, message)
+            # self.pool.submit(self.message_work, body, message)
+            result = self.pool.apply_async(self.message_work, args=(body, message))
+            result.wait()
         except AssertionError:
             message.requeue()
 
@@ -76,6 +78,9 @@ class Consumer(ConsumerMixin):
         """
         for consumer in self.consumers:
             consumer.close()
+        # self.pool.shutdown(wait=True)
+        self.pool.close()
+        self.pool.join()
         self.connection.release()
         del sig_number, stack_frame
 
