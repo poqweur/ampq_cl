@@ -17,10 +17,12 @@ with open(join(dirname(__file__), './VERSION.txt'), 'rb') as f:
         作为一个合格的模块，应该有版本号
     '''
 
+mdpath = "./README.md"
+
 setup(
     name='ampq_cl',  # 模块名
     version=version,  # 版本号
-    description='A generic queue client',  # 描述
+    description='A generic queue client',  # 标题描述
     packages=find_packages(exclude=[]),  # 包含目录中所有包，exclude=['哪些文件除外']
     author='wangjy',  # 作者
     author_email='1149447019@qq.com',  # 作者邮箱
@@ -31,6 +33,9 @@ setup(
     install_requires=[
         "kombu>=4.3.0",
     ],
+    long_description=open(mdpath, encoding='utf-8').read(),
+    long_description_content_type='text/markdown',
+    data_files=[mdpath],
     zip_safe=False,
     classifiers=[
         'Programming Language :: Python',
