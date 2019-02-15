@@ -31,7 +31,7 @@ setup(
     url='https://github.com/poqweur/ampq_cl',
     # install_requires=[str(ir.req) for ir in parse_requirements("requirements.txt", session=False)],  # 所需的运行环境
     install_requires=[
-        "kombu>=4.3.0",
+        "kombu==4.3",
     ],
     long_description=open(mdpath, encoding='utf-8').read(),
     long_description_content_type='text/markdown',
