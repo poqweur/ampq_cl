@@ -76,6 +76,7 @@ class Consumer(ConsumerMixin):
         for consumer in self.consumers:
             consumer.close()
         self.connection.release()
+        self.pool.shutdown(wait=True)
         del sig_number, stack_frame
 
     def message_work(self, obj):
