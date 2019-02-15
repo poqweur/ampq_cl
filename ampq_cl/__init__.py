@@ -24,7 +24,7 @@ class Consumer(ConsumerMixin):
         consumer.run()
     """
 
-    def __init__(self, amqp_url, queues, func, prefetch_count=30, thread_num=10, heart_interval=30,
+    def __init__(self, amqp_url, queues, func, prefetch_count=30, thread_num=5, heart_interval=30,
                  consumer_tag=None, is_rpc=False, durable=False):
         """
         :param amqp_url: 队列地址
@@ -42,7 +42,7 @@ class Consumer(ConsumerMixin):
             else [Queue(queues, durable=durable)]
         self.consumers = list()
         self.consumer_tag = consumer_tag
-        self.pool = ThreadPoolExecutor(max_workers=thread_num)
+        self.thread_num = thread_num
         self.prefetch_count = prefetch_count
         self.func = func
         self.is_rpc = is_rpc
@@ -62,7 +62,8 @@ class Consumer(ConsumerMixin):
         :return:
         """
         try:
-            self.pool.submit(self.message_work, body, message)
+            with ThreadPoolExecutor(max_workers=self.thread_num) as pool:
+                pool.submit(self.message_work, body, message)
         except AssertionError:
             message.requeue()
 
@@ -76,7 +77,6 @@ class Consumer(ConsumerMixin):
         for consumer in self.consumers:
             consumer.close()
         self.connection.release()
-        self.pool.shutdown(wait=True)
         del sig_number, stack_frame
 
     def message_work(self, body, message):
