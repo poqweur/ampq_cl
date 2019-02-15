@@ -3,7 +3,7 @@
 # Author: WangJY
 
 from os.path import dirname, join
-from pip.req import parse_requirements
+# from pip.req import parse_requirements
 
 # 包管理工具
 from setuptools import (
@@ -18,22 +18,24 @@ with open(join(dirname(__file__), './VERSION.txt'), 'rb') as f:
     '''
 
 setup(
-    name='mini_scrapy',  # 模块名
+    name='ampq_cl',  # 模块名
     version=version,  # 版本号
-    description='A mini spider frameword, like scrapy',  # 描述
+    description='A generic queue client',  # 描述
     packages=find_packages(exclude=[]),  # 包含目录中所有包，exclude=['哪些文件除外']
-    author='WangJY',  # 作者
-    author_email='wangjunyan456@gmail.com',  # 作者邮箱
+    author='wangjy',  # 作者
+    author_email='1149447019@qq.com',  # 作者邮箱
     license='Apache License v2',
     package_data={'': ['*.*']},  # {'包名': ['正则']}
-    url='#',
-    install_requires=[str(ir.req) for ir in parse_requirements("requirements.txt",session=False)],  # 所需的运行环境
+    url='https://github.com/poqweur/ampq_cl',
+    # install_requires=[str(ir.req) for ir in parse_requirements("requirements.txt", session=False)],  # 所需的运行环境
+    install_requires=[
+        "kombu>=4.3.0",
+    ],
     zip_safe=False,
     classifiers=[
         'Programming Language :: Python',
         'Operating System :: Microsoft :: Windows',
         'Operating System :: Unix',
-        'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
