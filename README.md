@@ -8,6 +8,6 @@ def worker(data):
             ...
 
 
-        consumer = Consumer("amqp://smallrabbit:123456@172.16.20.73:5672/order", "q.order.tyxb.zfk", worker)
+        consumer = Consumer("amqp://account:password@ip:port/vhost", "queue", worker)
         consumer.run()
 ```
