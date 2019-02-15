@@ -1,0 +1,11 @@
+.idea/
+cache/
+dist/
+*.pyc
+.idea/misc.xml
+.idea/modules.xml
+.idea/tymh_interface_openservice_tyxb.iml
+MANIFEST
+
+
+
