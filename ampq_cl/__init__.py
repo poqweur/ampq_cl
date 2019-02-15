@@ -4,7 +4,7 @@
 
 import signal
 from multiprocessing.dummy import Pool
-# from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 
 from kombu import Connection, Queue, Producer
 from kombu.mixins import ConsumerMixin
@@ -43,7 +43,7 @@ class Consumer(ConsumerMixin):
             else [Queue(queues, durable=durable)]
         self.consumers = list()
         self.consumer_tag = consumer_tag
-        self.pool = Pool(thread_num)  # ThreadPoolExecutor(max_workers=thread_num)
+        self.pool = Pool(thread_num)
         self.prefetch_count = prefetch_count
         self.func = func
         self.is_rpc = is_rpc
@@ -63,9 +63,7 @@ class Consumer(ConsumerMixin):
         :return:
         """
         try:
-            # self.pool.submit(self.message_work, body, message)
-            result = self.pool.apply_async(self.message_work, args=(body, message))
-            result.wait()
+            self.pool.apply_async(self.message_work, args=(body, message))
         except AssertionError:
             message.requeue()
 
@@ -78,7 +76,6 @@ class Consumer(ConsumerMixin):
         """
         for consumer in self.consumers:
             consumer.close()
-        # self.pool.shutdown(wait=True)
         self.pool.close()
         self.pool.join()
         self.connection.release()
@@ -116,3 +113,40 @@ class Consumer(ConsumerMixin):
         signal.signal(signal.SIGTERM, self.stop)
         signal.signal(signal.SIGINT, self.stop)
         super(Consumer, self).run()
+
+
+class Consumer2(Consumer):
+    """
+    使用不同的线程池，使用方法与父类一样
+    """
+
+    def __init__(self, amqp_url, queues, func, thread_num=5):
+        super(Consumer2, self).__init__(amqp_url, queues, func, prefetch_count=30, thread_num=5, heart_interval=30,
+                                        consumer_tag=None, is_rpc=False, durable=False)
+
+        self.pool = ThreadPoolExecutor(max_workers=thread_num)
+
+    def on_message(self, body, message):
+        """
+        线程池调用函数
+        :param body: 收到的内容
+        :param message: 队列收到的对象
+        :return:
+        """
+        try:
+            self.pool.submit(self.message_work, body, message)
+        except AssertionError:
+            message.requeue()
+
+    def stop(self, sig_number, stack_frame):
+        """
+        入参暂时未处理
+        :param sig_number: 信号
+        :param stack_frame:
+        :return:
+        """
+        for consumer in self.consumers:
+            consumer.close()
+        self.pool.shutdown(wait=True)
+        self.connection.release()
+        del sig_number, stack_frame
