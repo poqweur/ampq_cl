@@ -6,6 +6,7 @@ Based on the kombu
 ```python
 def worker(data):
             ...
+            return SUCCESS
 
 
         consumer = Consumer("amqp://account:password@ip:port/vhost", "queue", worker)
