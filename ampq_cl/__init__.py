@@ -64,6 +64,8 @@ class Consumer(ConsumerMixin):
         :return:
         """
         try:
+            if not self.connection.connected:
+                self.on_connection_revived()
             self.pool.apply_async(self.message_work, args=(body, message))
         except AssertionError:
             message.requeue()
@@ -98,7 +100,7 @@ class Consumer(ConsumerMixin):
         elif code is REJECT:
             message.reject()
         else:
-            raise Exception("非指定返回CODE码")
+            message.reject()
         if self.is_rpc:
             Producer(message.channel).publish(body=str(msg), routing_key=message.preoperties["reply_to"],
                                               **{"correlation_id": message.preoperties["correlation_id"]})
@@ -205,6 +207,10 @@ class RabbitMQ:
             )
             return True
         except:
+            self.conn.revive(self.producers)
+            result = self.send(article, exchange, routing_key)
+            if result:
+                return True
             return False
 
     def close(self):
