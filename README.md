@@ -1,6 +1,8 @@
 ### Project description
 
-Based on the kombu
+Based on the kombu, pika
+
+**must kombu==3.0.35**
 
 *The sample code*
 ```python
