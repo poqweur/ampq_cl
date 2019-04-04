@@ -158,7 +158,7 @@ class Consumer2(Consumer):
 
 
 class PikaConsumer(object):
-
+    # TODO:未完成
     # EXCHANGE = ""
     # EXCHANGE_TYPE = ""
     # QUEUE = ""
@@ -261,7 +261,7 @@ class PikaConsumer(object):
 
         Since the channel is now open, we'll declare the exchange to use.
 
-        :param pika.channel.Channel channel: The channel object
+        :param pika.channel.Channel channel: The channel object 
 
         """
         self.logger.info('Channel opened')
@@ -411,7 +411,6 @@ class PikaConsumer(object):
         self.logger.info('Declaring queue %s', queue_name)
         self._channel.queue_declare(self.on_queue_declareok,
                                     queue_name)
-
 
     def on_cancelok(self, unused_frame):
         """This method is invoked by pika when RabbitMQ acknowledges the
