@@ -8,6 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 from kombu import Connection, Queue, Producer, pools
 from kombu.mixins import ConsumerMixin
 import pika
+from pika import exceptions
+from pika.spec import BasicProperties
 
 SUCCESS = 0
 REDELIVER = 1
@@ -157,12 +159,41 @@ class Consumer2(Consumer):
         del sig_number, stack_frame
 
 
+class WorkerMessage:
+    def __init__(self, basic_deliver, properties, body):
+        self.body = body
+        self.basic_deliver = basic_deliver
+        self.properties = properties.headers
+        self.basic_properties = properties
+        self.delivery_tag = basic_deliver.delivery_tag
+        self.is_publish = False
+        self.exchange = None
+        self.routing_key = None
+        self.publish_properties = None
+        self.publish_body = body
+
+    def publish(self, exchange, routing_key, properties=None, expiration=None, body=None):
+        """
+        设置该消息是否需要转发
+        :param exchange: 需要发送的exchange
+        :param routing_key: 需要发送的routing key
+        :param properties: 需要发送的属性值，字典类型
+        :param body: 需要发送的消息体，默认为与原始消息体一致
+        :param expiration: 消息的过期时间
+        :return:
+        """
+        self.is_publish = True
+        self.exchange = exchange
+        self.routing_key = routing_key
+        self.publish_properties = BasicProperties(headers=properties, expiration=expiration)
+        if body:
+            self.publish_body = body
+
+
 class PikaConsumer(object):
-    # TODO:未完成
-    # EXCHANGE = ""
-    # EXCHANGE_TYPE = ""
-    # QUEUE = ""
-    # ROUTING_KEY = ""
+    """
+    TODO: 未测试
+    """
 
     def __init__(self, amqp_url, queue, logger, prefetch_count=30, thread_num=5, heart_interval=30,
                  consumer_tag=None, is_rpc=False):
@@ -266,8 +297,8 @@ class PikaConsumer(object):
         """
         self.logger.info('Channel opened')
         self._channel = channel
-        self._channel.basic_qos()
-        self.add_on_channel_close_callback(prefetch_count=self.prefetch_count)
+        self._channel.basic_qos(prefetch_count=self.prefetch_count)
+        self.add_on_channel_close_callback()
         self.start_consuming()
 
     def add_on_channel_close_callback(self):
@@ -306,8 +337,11 @@ class PikaConsumer(object):
         """
         self.logger.info('Issuing consumer related RPC commands')
         self.add_on_cancel_callback()
-        self._consumer_tag = self._channel.basic_consume(self.on_message,
-                                                         self.queue)
+        if self._consumer_tag is None:
+            self._consumer_tag = self._channel.basic_consume(self.on_message,
+                                                             self.queue)
+        else:
+            self._channel.basic_consume(self.on_message, self.queue, consumer_tag=self._consumer_tag)
 
     def add_on_cancel_callback(self):
         """Add a callback that will be invoked if RabbitMQ cancels the consumer
@@ -346,71 +380,56 @@ class PikaConsumer(object):
         """
         self.logger.info('Received message # %s from %s: %s',
                          basic_deliver.delivery_tag, properties.app_id, body)
-        self.acknowledge_message(basic_deliver.delivery_tag)
+        message = WorkerMessage(basic_deliver, properties, body)
+        try:
+            self.pool.apply_async(self.message_worker, (message,),
+                                  callback=self.message_handle_callback)
+        except AssertionError:
+            self.logger.warning('The thread pool has been shutdown, requeue message tag = %s', message.delivery_tag)
+            self._channel.basic_nack(message.delivery_tag)
+            # recreate the pool
+            self.pool = Pool(getattr(self.pool, '_processes'))
 
-    def on_queue_declareok(self, method_frame):
-        """Method invoked by pika when the Queue.Declare RPC call made in
-        setup_queue has completed. In this method we will bind the queue
-        and exchange together with the routing key by issuing the Queue.Bind
-        RPC command. When this command is complete, the on_bindok method will
-        be invoked by pika.
+    def message_handle_callback(self, result):
+        """
+        消息处理回调
+        :param result: 消息处理结果，(result_code,result_msg,messages)
+        :return:
+        """
+        result_code, result_msg, message = result
+        try:
+            if result_code == SUCCESS:
+                self._channel.basic_ack(message.delivery_tag)
+            elif result_code == REDELIVER:
+                self._channel.basic_nack(message.delivery_tag)
+            elif result_code == REJECT:
+                self.logger.warn('The message will be rejected! delivery_tag = %s', message.delivery_tag)
+                self._channel.basic_reject(message.delivery_tag, False)
+            else:
+                self.logger.warn(
+                    'Return code must be CONSUME_SUCCESS/CONSUME_REDELIVER/CONSUME_REJECT. Current code is %s',
+                    result_code)
+            # 判断是否为rpc服务
+            if self.is_rpc:
+                self._channel.basic_publish(message.basic_deliver.exchange, message.basic_properties.reply_to,
+                                            str(result_msg), message.basic_properties)
 
-        :param pika.frame.Method method_frame: The Queue.DeclareOk frame
+            # 消息是否需要转发
+            if message.is_publish:
+                self._channel.basic_publish(message.exchange, message.routing_key, message.publish_body,
+                                            message.publish_properties)
+
+        except exceptions.ChannelClosed:
+            self.logger.error('The channel has already been closed!')
+
+    def stop_consuming(self):
+        """Tell RabbitMQ that you would like to stop consuming by sending the
+        Basic.Cancel RPC command.
 
         """
-        self.logger.info('Binding %s to %s with %s', self.EXCHANGE, self.QUEUE, self.ROUTING_KEY)
-        self._channel.queue_bind(self.on_bindok, self.QUEUE,
-                                 self.EXCHANGE, self.ROUTING_KEY)
-
-    def close_connection(self):
-        """This method closes the connection to RabbitMQ."""
-        self.logger.info('Closing connection')
-        self._connection.close()
-
-    def on_exchange_declareok(self, unused_frame):
-        """Invoked by pika when RabbitMQ has finished the Exchange.Declare RPC
-        command.
-
-        :param pika.Frame.Method unused_frame: Exchange.DeclareOk response frame
-
-        """
-        self.logger.info('Exchange declared')
-        self.setup_queue(self.QUEUE)
-
-    def setup_exchange(self, exchange_name):
-        """Setup the exchange on RabbitMQ by invoking the Exchange.Declare RPC
-        command. When it is complete, the on_exchange_declareok method will
-        be invoked by pika.
-
-        :param str|unicode exchange_name: The name of the exchange to declare
-
-        """
-        self.logger.info('Declaring exchange %s', exchange_name)
-        self._channel.exchange_declare(self.on_exchange_declareok,
-                                       exchange_name,
-                                       self.EXCHANGE_TYPE)
-
-    def acknowledge_message(self, delivery_tag):
-        """Acknowledge the message delivery from RabbitMQ by sending a
-        Basic.Ack RPC method for the delivery tag.
-
-        :param int delivery_tag: The delivery tag from the Basic.Deliver frame
-
-        """
-        self.logger.info('Acknowledging message %s', delivery_tag)
-        self._channel.basic_ack(delivery_tag)
-
-    def setup_queue(self, queue_name):
-        """Setup the queue on RabbitMQ by invoking the Queue.Declare RPC
-        command. When it is complete, the on_queue_declareok method will
-        be invoked by pika.
-
-        :param str|unicode queue_name: The name of the queue to declare.
-
-        """
-        self.logger.info('Declaring queue %s', queue_name)
-        self._channel.queue_declare(self.on_queue_declareok,
-                                    queue_name)
+        if self._channel:
+            self.logger.info('Sending a Basic.Cancel RPC command to RabbitMQ')
+            self._channel.basic_cancel(self.on_cancelok, self._consumer_tag)
 
     def on_cancelok(self, unused_frame):
         """This method is invoked by pika when RabbitMQ acknowledges the
@@ -423,26 +442,6 @@ class PikaConsumer(object):
         """
         self.logger.info('RabbitMQ acknowledged the cancellation of the consumer')
         self.close_channel()
-
-    def stop_consuming(self):
-        """Tell RabbitMQ that you would like to stop consuming by sending the
-        Basic.Cancel RPC command.
-
-        """
-        if self._channel:
-            self.logger.info('Sending a Basic.Cancel RPC command to RabbitMQ')
-            self._channel.basic_cancel(self.on_cancelok, self._consumer_tag)
-
-    def on_bindok(self, unused_frame):
-        """Invoked by pika when the Queue.Bind method has completed. At this
-        point we will start consuming messages by calling start_consuming
-        which will invoke the needed RPC commands to start the process.
-
-        :param pika.frame.Method unused_frame: The Queue.BindOk response frame
-
-        """
-        self.logger.info('Queue bound')
-        self.start_consuming()
 
     def close_channel(self):
         """Call to close the channel with RabbitMQ cleanly by issuing the
@@ -457,10 +456,16 @@ class PikaConsumer(object):
         starting the IOLoop to block and allow the SelectConnection to operate.
 
         """
-        self._connection = self.connect()
-        self._connection.ioloop.start()
+        if self.handle_message_worker is None:
+            raise Exception('未注册消息处理方法！')
+        else:
+            # 增加信号
+            signal.signal(signal.SIGTERM, self.stop)
+            signal.signal(signal.SIGINT, self.stop)
+            self._connection = self.connect()
+            self._connection.ioloop.start()
 
-    def stop(self):
+    def stop(self, signum=None, frame=None):
         """Cleanly shutdown the connection to RabbitMQ by stopping the consumer
         with RabbitMQ. When RabbitMQ confirms the cancellation, on_cancelok
         will be invoked by pika, which will then closing the channel and
@@ -471,11 +476,116 @@ class PikaConsumer(object):
         the IOLoop will be buffered but not processed.
 
         """
-        self.logger.info('Stopping')
+        self.logger.info('Stopping consumer, signum=%s, frame=%s', signum, frame)
         self._closing = True
         self.stop_consuming()
+        # 关闭线程池
+        self.pool.close()
+        self.pool.join()
         self._connection.ioloop.start()
-        self.logger.info('Stopped')
+        self.logger.info('consumer Stopped')
+
+    def close_connection(self):
+        """This method closes the connection to RabbitMQ."""
+        self.logger.info('Closing connection')
+        self._connection.close()
+
+    def register_worker(self, worker):
+        """
+        注册实际处理消息的worker
+        :param worker: 处理消息方法
+        :return:
+        """
+        self.logger.info("Start register message worker")
+        self.handle_message_worker = worker
+
+    def message_worker(self, message):
+        """
+        处理消息方法
+        :param message: 消息对象
+        :return:
+        """
+        self.logger.debug('Start processing message, message tag = %s', message.delivery_tag)
+        result = self.handle_message_worker(message)
+        if isinstance(result, tuple):
+            result_code = result[0]
+            result_msg = result[1]
+        else:
+            result_code = result
+            result_msg = None
+        self.logger.debug('Messages have been processed. Result code = %s; Result Msg = %s', result_code, result_msg)
+        return result_code, result_msg, message
+
+    # def on_queue_declareok(self, method_frame):
+    #     """Method invoked by pika when the Queue.Declare RPC call made in
+    #     setup_queue has completed. In this method we will bind the queue
+    #     and exchange together with the routing key by issuing the Queue.Bind
+    #     RPC command. When this command is complete, the on_bindok method will
+    #     be invoked by pika.
+    #
+    #     :param pika.frame.Method method_frame: The Queue.DeclareOk frame
+    #
+    #     """
+    #     self.logger.info('Binding %s to %s with %s', self.EXCHANGE, self.QUEUE, self.ROUTING_KEY)
+    #     self._channel.queue_bind(self.on_bindok, self.QUEUE,
+    #                              self.EXCHANGE, self.ROUTING_KEY)
+    #
+    # def on_exchange_declareok(self, unused_frame):
+    #     """Invoked by pika when RabbitMQ has finished the Exchange.Declare RPC
+    #     command.
+    #
+    #     :param pika.Frame.Method unused_frame: Exchange.DeclareOk response frame
+    #
+    #     """
+    #     self.logger.info('Exchange declared')
+    #     self.setup_queue(self.QUEUE)
+    #
+    # def setup_exchange(self, exchange_name):
+    #     """Setup the exchange on RabbitMQ by invoking the Exchange.Declare RPC
+    #     command. When it is complete, the on_exchange_declareok method will
+    #     be invoked by pika.
+    #
+    #     :param str|unicode exchange_name: The name of the exchange to declare
+    #
+    #     """
+    #     self.logger.info('Declaring exchange %s', exchange_name)
+    #     self._channel.exchange_declare(self.on_exchange_declareok,
+    #                                    exchange_name,
+    #                                    self.EXCHANGE_TYPE)
+    #
+    # def acknowledge_message(self, delivery_tag):
+    #     """Acknowledge the message delivery from RabbitMQ by sending a
+    #     Basic.Ack RPC method for the delivery tag.
+    #
+    #     :param int delivery_tag: The delivery tag from the Basic.Deliver frame
+    #
+    #     """
+    #     self.logger.info('Acknowledging message %s', delivery_tag)
+    #     self._channel.basic_ack(delivery_tag)
+    #
+    # def setup_queue(self, queue_name):
+    #     """Setup the queue on RabbitMQ by invoking the Queue.Declare RPC
+    #     command. When it is complete, the on_queue_declareok method will
+    #     be invoked by pika.
+    #
+    #     :param str|unicode queue_name: The name of the queue to declare.
+    #
+    #     """
+    #     self.logger.info('Declaring queue %s', queue_name)
+    #     self._channel.queue_declare(self.on_queue_declareok,
+    #                                 queue_name)
+    #
+    #
+    # def on_bindok(self, unused_frame):
+    #     """Invoked by pika when the Queue.Bind method has completed. At this
+    #     point we will start consuming messages by calling start_consuming
+    #     which will invoke the needed RPC commands to start the process.
+    #
+    #     :param pika.frame.Method unused_frame: The Queue.BindOk response frame
+    #
+    #     """
+    #     self.logger.info('Queue bound')
+    #     self.start_consuming()
 
 
 class RabbitMQSend(object):
