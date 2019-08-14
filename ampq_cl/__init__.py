@@ -29,7 +29,7 @@ class Consumer(ConsumerMixin):
     """
 
     def __init__(self, amqp_url, queues, func, prefetch_count=30, thread_num=5, heart_interval=30,
-                 consumer_tag=None, is_rpc=False, durable=True):
+                 consumer_tag=None, is_rpc=False, durable=True, log=None):
         """
         :param amqp_url: 队列地址
         :param queues: 队列名,可以接收多个多列
@@ -44,12 +44,14 @@ class Consumer(ConsumerMixin):
         self.connection = Connection(amqp_url, heart_interval=heart_interval)
         self.queue = [Queue(queue, durable=durable) for queue in queues] if type(queues) is list \
             else [Queue(queues, durable=durable)]
+        self.queues = queues
         self.consumers = list()
         self.consumer_tag = consumer_tag
         self.pool = Pool(thread_num)
         self.prefetch_count = prefetch_count
         self.func = func
         self.is_rpc = is_rpc
+        self.log = log
 
     def get_consumers(self, consumer_cls, channel):
         consumer = consumer_cls(self.queue, callbacks=[self.on_message], tag_prefix=self.consumer_tag,
@@ -87,7 +89,11 @@ class Consumer(ConsumerMixin):
         del sig_number, stack_frame
 
     def message_work(self, body, message):
+        if self.log:
+            self.log.debug("%s start body=%s queue=%s" % (self.queues, body, message))
         result = self.func(body)
+        if self.log:
+            self.log.debug("%s end body=%s queue=%s result=%s" % (self.queues, body, message, result))
         if isinstance(result, tuple):
             code = result[0]
             msg = result[1]
@@ -126,10 +132,10 @@ class Consumer2(Consumer):
     """
 
     def __init__(self, amqp_url, queues, func, thread_num=5, prefetch_count=30, heart_interval=30,
-                 consumer_tag=None, is_rpc=False, durable=True):
+                 consumer_tag=None, is_rpc=False, durable=True, log=None):
         super(Consumer2, self).__init__(amqp_url, queues, func, prefetch_count=prefetch_count, thread_num=thread_num,
                                         heart_interval=heart_interval, consumer_tag=consumer_tag,
-                                        is_rpc=is_rpc, durable=durable)
+                                        is_rpc=is_rpc, durable=durable, log=log)
 
         self.pool = ThreadPoolExecutor(max_workers=thread_num)
 

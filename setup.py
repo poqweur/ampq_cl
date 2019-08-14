@@ -17,7 +17,7 @@ with open(join(dirname(__file__), './VERSION.txt'), 'rb') as f:
         作为一个合格的模块，应该有版本号
     '''
 
-mdpath = "./README.md"
+mdpath = "./README.rst"
 
 setup(
     name='ampq_cl',  # 模块名
@@ -34,7 +34,7 @@ setup(
         "kombu==3.0.35",
         "pika==0.13.1"
     ],
-    long_description=open(mdpath, encoding='utf-8').read(),
+    long_description=open(mdpath, "r", encoding="utf-8").read() + "\n\n",
     long_description_content_type='text/markdown',
     data_files=[mdpath],
     zip_safe=False,
@@ -42,8 +42,7 @@ setup(
         'Programming Language :: Python',
         'Operating System :: Microsoft :: Windows',
         'Operating System :: Unix',
-        'Programming Language :: Python :: 3.4',
-        'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
     ],
 )

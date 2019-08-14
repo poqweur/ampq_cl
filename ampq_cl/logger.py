@@ -14,7 +14,7 @@ def get_logger(app_name, log_path, debug=False):
     :param debug: str 否是记录
     :return:
     """
-    __PREFIX = "D:\\tyxb_tiantong_logs" if platform.system() == "Windows" else "%s/%s/%s/%s" % (
+    __PREFIX = "D:\\{}_logs".format(app_name) if platform.system() == "Windows" else "%s/%s/%s/%s" % (
         log_path.rstrip("/"), app_name.strip("/"), os.environ["HOSTNAME"], os.getpid())
 
     # 根据系统修改文件生成路径
