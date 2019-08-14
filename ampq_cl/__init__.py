@@ -24,7 +24,7 @@ class Consumer(ConsumerMixin):
             :return SUCCESS
 
 
-        consumer = Consumer("amqp://smallrabbit:123456@172.16.20.73:5672/order", "q.order.tyxb.zfk", worker)
+        consumer = Consumer("amqp://user:password@ip:port/vhost", "queue_name", worker)
         consumer.run()
     """
 
@@ -599,11 +599,11 @@ class RabbitMQSend(object):
     基于kombu库的发送队列:
     EXCHANGE = "wjy.test"
     ROUTING_KEY = "domestic"
-    sendmsg = RabbitMQ(host="172.16.20.73",
-                       port="5672",
-                       vhost="order",
-                       userid="smallrabbit",
-                       password="123456")
+    sendmsg = RabbitMQ(host="ip",
+                       port="port",
+                       vhost="vhost",
+                       userid="user",
+                       password="password")
 
     data = {"a": 1}
     sendmsg.send(article=json.dumps(data), exchange=EXCHANGE, routing_key=ROUTING_KEY)
