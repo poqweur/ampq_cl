@@ -41,7 +41,7 @@ class Consumer(ConsumerMixin):
         :param is_rpc: 是否是RPC服务，默认为False
         :param durable: 是否持久化
         """
-        self.connection = Connection(amqp_url, heart_interval=heart_interval)
+        self.connection = Connection(amqp_url, heartbeat=heart_interval)
         self.queue = [Queue(queue, durable=durable) for queue in queues] if type(queues) is list \
             else [Queue(queues, durable=durable)]
         self.queues = queues
@@ -137,7 +137,7 @@ class Consumer2(Consumer):
                                         heart_interval=heart_interval, consumer_tag=consumer_tag,
                                         is_rpc=is_rpc, durable=durable, log=log)
 
-        self.pool = ThreadPoolExecutor(max_workers=thread_num)
+        self.pool = ThreadPoolExecutor(max_workers=thread_num, timeUnit=10)
 
     def on_message(self, body, message):
         """
